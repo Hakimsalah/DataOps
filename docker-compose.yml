@@ -1,0 +1,104 @@
+version: "3.8"
+
+services:
+  zookeeper:
+    image: bitnami/zookeeper:latest
+    environment:
+      - ALLOW_ANONYMOUS_LOGIN=yes
+    ports: ["2181:2181"]
+
+  kafka:
+    image: bitnami/kafka:latest
+    environment:
+      - KAFKA_BROKER_ID=1
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_LISTENERS=PLAINTEXT://:9092
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - ALLOW_PLAINTEXT_LISTENER=yes
+    depends_on: ["zookeeper"]
+    ports: ["9092:9092"]
+
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop2.7.4-java8
+    environment:
+      - CLUSTER_NAME=local
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+    volumes:
+      - namenode_data:/hadoop/dfs/name
+    ports: ["9870:9870"]
+
+  datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop2.7.4-java8
+    environment:
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+    volumes:
+      - datanode_data:/hadoop/dfs/data
+    depends_on: ["namenode"]
+
+  spark-master:
+    image: bitnami/spark:3
+    environment:
+      - SPARK_MODE=master
+    ports: ["7077:7077","8080:8080"]
+    depends_on: ["namenode"]
+
+  spark-worker:
+    image: bitnami/spark:3
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+    depends_on: ["spark-master"]
+
+  mysql:
+    image: mysql:5.7
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpw
+      MYSQL_DATABASE: analytics
+      MYSQL_USER: user
+      MYSQL_PASSWORD: password
+    ports: ["3306:3306"]
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql-init:/docker-entrypoint-initdb.d
+
+  sqoop:
+    build:
+      context: ./sqoop
+      dockerfile: Dockerfile
+    depends_on: ["namenode", "mysql"]
+    volumes:
+      - ./sqoop/scripts:/scripts
+    entrypoint: ["/bin/bash", "-c", "sleep 10 && tail -f /dev/null"]
+
+  flume:
+    image: javefrog/flume:latest
+    volumes:
+      - ./flume:/flume
+      - ./flume/spooldir:/spooldir
+    command: ["flume-ng", "agent", "-n", "agent", "-f", "/flume/flume.conf", "-Dflume.root.logger=INFO,console"]
+    depends_on: ["kafka","namenode"]
+
+  web-scraper:
+    build:
+      context: ./web-scraper
+      dockerfile: Dockerfile
+    volumes:
+      - ./datasets:/app/datasets
+    depends_on: ["kafka"]
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_TOPIC=prices_topic
+    command: ["python", "producer.py"]
+
+  grafana:
+    image: grafana/grafana:latest
+    ports: ["3000:3000"]
+    depends_on: ["mysql"]
+    volumes:
+      - grafana_data:/var/lib/grafana
+
+volumes:
+  namenode_data:
+  datanode_data:
+  mysql_data:
+  grafana_data:
