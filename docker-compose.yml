@@ -1,14 +1,12 @@
-version: "3.8"
-
 services:
   zookeeper:
-    image: bitnami/zookeeper:latest
+    image: zookeeper:3.8.4
     environment:
       - ALLOW_ANONYMOUS_LOGIN=yes
     ports: ["2181:2181"]
 
   kafka:
-    image: bitnami/kafka:latest
+    image: apache/kafka:4.1.1-rc2
     environment:
       - KAFKA_BROKER_ID=1
       - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
@@ -21,7 +19,6 @@ services:
   namenode:
     image: bde2020/hadoop-namenode:2.0.0-hadoop2.7.4-java8
     environment:
-      - CLUSTER_NAME=local
       - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
     volumes:
       - namenode_data:/hadoop/dfs/name
@@ -36,19 +33,21 @@ services:
     depends_on: ["namenode"]
 
   spark-master:
-    image: bitnami/spark:3
-    environment:
-      - SPARK_MODE=master
-    ports: ["7077:7077","8080:8080"]
-    depends_on: ["namenode"]
+    image: docker.io/apache/spark:3.5.1
+    container_name: spark-master
+    command: bash -c "start-master.sh && tail -f /dev/null"
+    ports:
+      - "8080:8080"
+
 
   spark-worker:
-    image: bitnami/spark:3
-    environment:
-      - SPARK_MODE=worker
-      - SPARK_MASTER_URL=spark://spark-master:7077
-    depends_on: ["spark-master"]
+    image: docker.io/apache/spark:3.5.1
+    container_name: spark-worker
+    command: bash -c "start-worker.sh spark://spark-master:7077 && tail -f /dev/null"
+    depends_on:
+      - spark-master
 
+      
   mysql:
     image: mysql:5.7
     environment:
@@ -71,12 +70,16 @@ services:
     entrypoint: ["/bin/bash", "-c", "sleep 10 && tail -f /dev/null"]
 
   flume:
-    image: javefrog/flume:latest
+    image: probablyfine/flume:latest
+    container_name: flume
     volumes:
       - ./flume:/flume
       - ./flume/spooldir:/spooldir
     command: ["flume-ng", "agent", "-n", "agent", "-f", "/flume/flume.conf", "-Dflume.root.logger=INFO,console"]
-    depends_on: ["kafka","namenode"]
+    depends_on:
+      - namenode
+
+
 
   web-scraper:
     build:
@@ -87,8 +90,8 @@ services:
     depends_on: ["kafka"]
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - KAFKA_TOPIC=prices_topic
-    command: ["python", "producer.py"]
+      - KAFKA_TOPIC=realtime-products
+    command: ["python","producer_api.py"]
 
   grafana:
     image: grafana/grafana:latest
@@ -96,6 +99,7 @@ services:
     depends_on: ["mysql"]
     volumes:
       - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
 
 volumes:
   namenode_data:
