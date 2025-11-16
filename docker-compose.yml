@@ -1,108 +1,54 @@
+version: '3.8'
+
 services:
-  zookeeper:
-    image: zookeeper:3.8.4
-    environment:
-      - ALLOW_ANONYMOUS_LOGIN=yes
-    ports: ["2181:2181"]
-
-  kafka:
-    image: apache/kafka:4.1.1-rc2
-    environment:
-      - KAFKA_BROKER_ID=1
-      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
-      - KAFKA_LISTENERS=PLAINTEXT://:9092
-      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
-      - ALLOW_PLAINTEXT_LISTENER=yes
-    depends_on: ["zookeeper"]
-    ports: ["9092:9092"]
-
   namenode:
     image: bde2020/hadoop-namenode:2.0.0-hadoop2.7.4-java8
+    container_name: namenode
     environment:
+      - CLUSTER_NAME=hadoop-cluster
       - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - HDFS_CONF_dfs_namenode_name_dir=file:///hadoop/dfs/name
+      - HDFS_CONF_dfs_permissions_enabled=false
     volumes:
       - namenode_data:/hadoop/dfs/name
-    ports: ["9870:9870"]
+    ports:
+      - "9870:9870"
+      - "9000:9000"
 
   datanode:
     image: bde2020/hadoop-datanode:2.0.0-hadoop2.7.4-java8
+    container_name: datanode
     environment:
+      - CLUSTER_NAME=hadoop-cluster
       - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - HDFS_CONF_dfs_datanode_data_dir=file:///hadoop/dfs/data
+      - HDFS_CONF_dfs_permissions_enabled=false
     volumes:
       - datanode_data:/hadoop/dfs/data
-    depends_on: ["namenode"]
-
-  spark-master:
-    image: docker.io/apache/spark:3.5.1
-    container_name: spark-master
-    command: bash -c "start-master.sh && tail -f /dev/null"
-    ports:
-      - "8080:8080"
-
-
-  spark-worker:
-    image: docker.io/apache/spark:3.5.1
-    container_name: spark-worker
-    command: bash -c "start-worker.sh spark://spark-master:7077 && tail -f /dev/null"
     depends_on:
-      - spark-master
-
-      
-  mysql:
-    image: mysql:5.7
-    environment:
-      MYSQL_ROOT_PASSWORD: rootpw
-      MYSQL_DATABASE: analytics
-      MYSQL_USER: user
-      MYSQL_PASSWORD: password
-    ports: ["3306:3306"]
-    volumes:
-      - mysql_data:/var/lib/mysql
-      - ./mysql-init:/docker-entrypoint-initdb.d
-
-  sqoop:
-    build:
-      context: ./sqoop
-      dockerfile: Dockerfile
-    depends_on: ["namenode", "mysql"]
-    volumes:
-      - ./sqoop/scripts:/scripts
-    entrypoint: ["/bin/bash", "-c", "sleep 10 && tail -f /dev/null"]
+      - namenode
 
   flume:
     image: probablyfine/flume:latest
     container_name: flume
+    environment:
+      - FLUME_AGENT_NAME=agent
     volumes:
-      - ./flume:/flume
+      - ./flume/flume.conf:/opt/flume-config/flume.conf
       - ./flume/spooldir:/spooldir
-    command: ["flume-ng", "agent", "-n", "agent", "-f", "/flume/flume.conf", "-Dflume.root.logger=INFO,console"]
+    command: ["flume-ng", "agent", "-n", "agent", "-f", "/opt/flume-config/flume.conf", "-Dflume.root.logger=INFO,console"]
     depends_on:
       - namenode
 
-
-
-  web-scraper:
-    build:
-      context: ./web-scraper
-      dockerfile: Dockerfile
+  log_generator:
+    build: ./loggen
+    container_name: loggen
     volumes:
-      - ./datasets:/app/datasets
-    depends_on: ["kafka"]
-    environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - KAFKA_TOPIC=realtime-products
-    command: ["python","producer_api.py"]
-
-  grafana:
-    image: grafana/grafana:latest
-    ports: ["3000:3000"]
-    depends_on: ["mysql"]
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./flume/spooldir:/spooldir    # generator writes directly to this folder
+      - ./flume/tmp:/tmp              # matches your Python script
+    depends_on:
+      - flume
 
 volumes:
   namenode_data:
   datanode_data:
-  mysql_data:
-  grafana_data:
