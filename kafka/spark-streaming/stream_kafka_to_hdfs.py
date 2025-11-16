@@ -4,6 +4,7 @@ from pyspark.sql.types import StructType, StringType, DoubleType, IntegerType
 
 spark = SparkSession.builder.appName("KafkaToHDFS").getOrCreate()
 
+# schema
 schema = StructType() \
     .add("product_id", IntegerType()) \
     .add("product_name", StringType()) \

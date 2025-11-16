@@ -1,18 +1,10 @@
-version: '3.8'
-
 services:
-  # =======================
-  # ZOOKEEPER
-  # =======================
   zookeeper:
     image: zookeeper:3.8.4
     container_name: zookeeper
     ports:
       - "2181:2181"
 
-  # =======================
-  # KAFKA
-  # =======================
   kafka:
     image: confluentinc/cp-kafka:7.3.0
     container_name: kafka
@@ -26,11 +18,14 @@ services:
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_JVM_PERFORMANCE_OPTS: "-Djava.lang.management.jmxremote=false"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
 
-  # =======================
-  # HDFS NAMENODE
-  # =======================
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   namenode:
     image: bde2020/hadoop-namenode:2.0.0-hadoop2.7.4-java8
     container_name: namenode
@@ -43,9 +38,7 @@ services:
     volumes:
       - hdfs_namenode:/hadoop/dfs/name
 
-  # =======================
-  # HDFS DATANODE
-  # =======================
+
   datanode:
     image: bde2020/hadoop-datanode:2.0.0-hadoop2.7.4-java8
     container_name: datanode
@@ -59,20 +52,15 @@ services:
     volumes:
       - hdfs_datanode:/hadoop/dfs/data
 
-  # =======================
-  # SPARK MASTER
-  # =======================
   spark-master:
     image: bde2020/spark-master:3.3.0-hadoop3.3
     container_name: spark-master
     ports:
       - "8080:8080"
+      - "7077:7077"
     environment:
       - SPARK_MODE=master
 
-  # =======================
-  # SPARK WORKER
-  # =======================
   spark-worker:
     image: bde2020/spark-worker:3.3.0-hadoop3.3
     container_name: spark-worker
@@ -82,31 +70,24 @@ services:
       - SPARK_MODE=worker
       - SPARK_MASTER=spark://spark-master:7077
 
-  # =======================
-  # KAFKA PRODUCER
-  # =======================
   kafka-producer:
     build:
       context: ./web-scraper
       dockerfile: Dockerfile
     container_name: kafka-producer
     depends_on:
-      - kafka
-    command: ["sh", "-c", "sleep 10 && python producer_api.py"]
+      kafka:
+        condition: service_healthy
 
-  # =======================
-  # SPARK CONSUMER
-  # =======================
   spark-consumer:
     build:
       context: ./spark-streaming
       dockerfile: Dockerfile
     container_name: spark-consumer
     depends_on:
-      - kafka
-      - spark-master
-      - namenode
-    command: ["sh", "-c", "sleep 15 && python stream_kafka_to_hdfs.py"]
+      kafka:
+        condition: service_healthy
+
 
 volumes:
   hdfs_namenode:
