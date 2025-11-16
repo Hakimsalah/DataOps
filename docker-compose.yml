@@ -1,56 +1,65 @@
-version: '3.8'  # or 3.9
-services:       # <-- make sure all your containers are under "services"
+version: '3.8'
+
+services:
+ 
   namenode:
-    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    image: bde2020/hadoop-namenode:2.0.0-hadoop2.7.4-java8
     container_name: namenode
-    restart: always
+    environment:
+      - CLUSTER_NAME=test
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
     ports:
       - "9870:9870"
       - "9000:9000"
     volumes:
-      - namenode_data:/hadoop/dfs/name
-    environment:
-      - CLUSTER_NAME=test
-      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
-      - HDFS_CONF_dfs_namenode_name_dir=file:///hadoop/dfs/name
+      - hdfs_namenode:/hadoop/dfs/name
 
+  # =======================
+  # HDFS DATANODE
+  # =======================
   datanode:
     image: bde2020/hadoop-datanode:2.0.0-hadoop2.7.4-java8
     container_name: datanode
+    depends_on:
+      - namenode
     environment:
       - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
-    volumes:
-      - datanode_data:/hadoop/dfs/data
-    depends_on:
-      - namenode
-
-  postgres:
-    image: postgres:15
-    container_name: postgres
-    environment:
-      POSTGRES_DB: analytics
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: 123456
+      - HDFS_CONF_dfs_datanode_data_dir=file:///hadoop/dfs/data
     ports:
-      - "5432:5432"
+      - "50075:50075"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./postgres-init:/docker-entrypoint-initdb.d
+      - hdfs_datanode:/hadoop/dfs/data
 
-  sqoop:
-    build:
-      context: ./sqoop
-      dockerfile: Dockerfile.sqoop
-    container_name: sqoop
+  
+
+  
+  flume:
+    build: ./flume
+    container_name: flume
+    volumes:
+      - ./flume/spooldir:/spooldir
+      - ./flume/conf:/opt/flume/conf
     environment:
-      HADOOP_CONF_DIR: /etc/hadoop
-      HADOOP_USER_NAME: root
+      JAVA_HOME: /opt/java/openjdk   # ajuste selon ton Dockerfile / JDK
+    command: >
+      /opt/flume/bin/flume-ng agent
+      -n agent
+      -f /opt/flume/conf/flume.conf
+      --conf /opt/flume/conf
+      -Dflume.root.logger=INFO,console
+
+
+
+
+  log_generator:
+    build: ./loggen
+    container_name: loggen
+    volumes:
+      - ./flume/spooldir:/spooldir    # generator writes directly to this folder
+      - ./flume/tmp:/tmp              # matches your Python script
     depends_on:
-      - namenode
-      - postgres
-    entrypoint: ["/bin/bash", "/scripts/import_export.sh"]
+      - flume  
 
 volumes:
-  namenode_data:
-  datanode_data:
-  postgres_data:
+  hdfs_namenode:
+  hdfs_datanode:
