@@ -1,0 +1,16 @@
+FROM dvoros/sqoop:hive2-sqoop1.4.7
+
+
+# Create Hadoop config
+RUN mkdir -p /etc/hadoop && \
+    echo '<?xml version="1.0"?>' > /etc/hadoop/core-site.xml && \
+    echo '<configuration>' >> /etc/hadoop/core-site.xml && \
+    echo '  <property>' >> /etc/hadoop/core-site.xml && \
+    echo '    <name>fs.defaultFS</name>' >> /etc/hadoop/core-site.xml && \
+    echo '    <value>hdfs://namenode:9000</value>' >> /etc/hadoop/core-site.xml && \
+    echo '  </property>' >> /etc/hadoop/core-site.xml && \
+    echo '</configuration>' >> /etc/hadoop/core-site.xml
+    
+COPY import_export.sh /scripts/import_export.sh
+RUN sed -i 's/\r$//' /scripts/import_export.sh && \
+    chmod +x /scripts/import_export.sh
